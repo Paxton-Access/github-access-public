@@ -1,0 +1,93 @@
+name: Automerge PR - Sync tool
+
+on:
+  pull_request:
+      types:
+      - labeled
+      - unlabeled
+      - synchronize
+      - opened
+      - edited
+      - ready_for_review
+      - reopened
+      - unlocked
+  pull_request_review:
+      types:
+      - submitted
+  check_suite: 
+      types:
+      - completed
+  status: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+#  version 1.0.3
+
+jobs:
+
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display GitHub Actor
+        shell: bash
+        run: echo "Github Actor is ${{ github.actor }}"
+        
+      - name: Auto-approve PR
+        uses: actions/github-script@v8
+        if: github.actor == 'pax-github-global-repo-sync-app[bot]'
+        # If you need the approval to come from a different account (to avoid "cannot approve your own PR"),
+        # set a machine user PAT in the repository secret PR_APPROVER_TOKEN.
+        with:
+          github-token: ${{ secrets.PR_APPROVER_TOKEN && secrets.PR_APPROVER_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr || !pr.number) {
+              console.log('No pull_request in context — skipping approval.');
+            } else {
+              try {
+                // Use the "rest" namespace for octokit in github-script v6
+                await github.rest.pulls.createReview({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  event: 'APPROVE',
+                });
+                console.log(`Approved PR #${pr.number}`);
+              } catch (err) {
+                console.log('Failed to create approval review:', err.message || err);
+                throw err;
+              }
+            }
+
+      - name: Detect allowed merge method
+        id: detect-merge
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const repo = context.repo;
+            const resp = await github.rest.repos.get({ owner: repo.owner, repo: repo.repo });
+            const data = resp.data;
+            const methods = [];
+            if (data.allow_merge_commit) methods.push('merge');
+            if (data.allow_squash_merge) methods.push('squash');
+            if (data.allow_rebase_merge) methods.push('rebase');
+            const chosen = methods.length ? methods[0] : '';
+            core.setOutput('merge_method', chosen);
+            console.log(`Allowed merge methods: ${methods.join(', ') || '<none>'}`);
+            console.log(`Selected merge method: ${chosen || '<none>'}`);
+
+      - name: Automerging
+        uses: pascalgn/automerge-action@v0.15.6
+        #the actor that created pr 
+        if: github.actor == 'pax-github-global-repo-sync-app[bot]'
+        env:
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_LOGIN: "pax-github-global-repo-sync-app"
+          MERGE_LABELS: ""
+          MERGE_METHOD: "${{ steps.detect-merge.outputs.merge_method }}"     # chosen from repo settings
+          MERGE_COMMIT_MESSAGE: "pull-request-title"
+          MERGE_RETRIES: "10"
+          MERGE_RETRY_SLEEP: "10000"
