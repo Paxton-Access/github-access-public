@@ -9,8 +9,8 @@ var key = fs.readFileSync("./git.pem");
 var token = jwt.sign(
   {
     iat: Math.floor(Date.now() / 1000),
-    // JWT expiration time (30 minute maximum)
-    exp: Math.floor(Date.now() / 1000) + 30 * 60,
+    // JWT expiration time (10 minute maximum)
+    exp: Math.floor(Date.now() / 1000) + 10 * 60,
     iss: args[0],
   },
   key,
